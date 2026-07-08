@@ -58,6 +58,8 @@ declare global {
     AMap?: any;
     GuidengNative?: {
       getCurrentLocation: (requestId: string) => void;
+      configureLocationSharing?: (sessionJson: string) => void;
+      clearLocationSharing?: () => void;
     };
     __guidengNativeLocationResult?: (requestId: string, result: NativeLocationResult) => void;
     _AMapSecurityConfig?: {
@@ -169,6 +171,7 @@ function App() {
 
   useEffect(() => {
     if (!session) return;
+    syncNativeLocationSharing(session);
     setEditingName(session.deviceName);
     registerDevice(session)
       .then(() => Promise.all([refreshDevices(session), refreshConfig(session)]))
@@ -262,6 +265,7 @@ function App() {
       body: JSON.stringify({ name }),
     });
     writeSession(updated);
+    syncNativeLocationSharing(updated);
     setSession(updated);
     await refreshDevices(updated);
   }
@@ -304,6 +308,7 @@ function App() {
             title={t.logout}
             onClick={() => {
               localStorage.removeItem(storageKey);
+              clearNativeLocationSharing();
               setSession(null);
             }}
           >
@@ -883,6 +888,14 @@ function readSession(): Session | null {
 
 function writeSession(session: Session) {
   localStorage.setItem(storageKey, JSON.stringify(session));
+}
+
+function syncNativeLocationSharing(session: Session) {
+  window.GuidengNative?.configureLocationSharing?.(JSON.stringify(session));
+}
+
+function clearNativeLocationSharing() {
+  window.GuidengNative?.clearLocationSharing?.();
 }
 
 function normalizeServerUrl(value: string) {

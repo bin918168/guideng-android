@@ -42,6 +42,8 @@ public class MainActivity extends BridgeActivity {
         installNativeLocationBridge();
         requestRuntimePermissions();
         startLocationForegroundServiceIfAllowed();
+        requestBackgroundLocationIfNeeded();
+        requestBatteryOptimizationExemptionOnce();
     }
 
     @Override
@@ -55,6 +57,8 @@ public class MainActivity extends BridgeActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_RUNTIME_PERMISSIONS) {
             startLocationForegroundServiceIfAllowed();
+            requestBackgroundLocationIfNeeded();
+            requestBatteryOptimizationExemptionOnce();
         }
     }
 
@@ -154,6 +158,36 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public void getCurrentLocation(String requestId) {
             handler.post(() -> getCurrentLocationOnMainThread(requestId));
+        }
+
+        @JavascriptInterface
+        public void configureLocationSharing(String sessionJson) {
+            handler.post(() -> configureLocationSharingOnMainThread(sessionJson));
+        }
+
+        @JavascriptInterface
+        public void clearLocationSharing() {
+            handler.post(() -> {
+                Intent intent = new Intent(MainActivity.this, GuidengForegroundService.class);
+                intent.setAction(GuidengForegroundService.ACTION_CLEAR);
+                ContextCompat.startForegroundService(MainActivity.this, intent);
+            });
+        }
+
+        private void configureLocationSharingOnMainThread(String sessionJson) {
+            try {
+                JSONObject session = new JSONObject(sessionJson);
+                Intent intent = new Intent(MainActivity.this, GuidengForegroundService.class);
+                intent.setAction(GuidengForegroundService.ACTION_CONFIGURE);
+                intent.putExtra(GuidengForegroundService.EXTRA_SERVER_URL, session.optString("serverUrl"));
+                intent.putExtra(GuidengForegroundService.EXTRA_TOKEN, session.optString("token"));
+                intent.putExtra(GuidengForegroundService.EXTRA_DEVICE_ID, session.optString("deviceId"));
+                intent.putExtra(GuidengForegroundService.EXTRA_DEVICE_NAME, session.optString("deviceName"));
+                ContextCompat.startForegroundService(MainActivity.this, intent);
+                requestBackgroundLocationIfNeeded();
+                requestBatteryOptimizationExemptionOnce();
+            } catch (JSONException ignored) {
+            }
         }
 
         @SuppressLint("MissingPermission")
