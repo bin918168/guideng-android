@@ -11,6 +11,15 @@
 - Android 端申请位置、后台定位、通知和后台常驻相关权限
 - 通过前台服务通知维持后台位置共享任务
 
+## 更新说明
+
+### 1.1.1
+
+- Android 原生前台服务统一负责位置上报，避免应用前台运行时重复上传
+- 为位置上传增加失败重试与指数退避，降低网络异常时的请求压力
+- 位置上传成功后不再立即刷新全部设备，减少不必要的网络请求
+- 优化后台位置共享的稳定性
+
 ## Android 权限说明
 
 应用会申请以下与定位和后台运行相关的权限：
@@ -62,6 +71,23 @@ cd android
 ```text
 android/app/build/outputs/apk/debug/app-debug.apk
 ```
+
+构建 release APK：
+
+```bash
+npm run build
+npx cap copy android
+cd android
+./gradlew clean assembleRelease
+```
+
+release APK 输出位置：
+
+```text
+android/app/build/outputs/apk/release/app-release.apk
+```
+
+如果存在 `android/keystore.properties`，构建会使用其中配置的签名；否则生成未签名的 release APK。
 
 ## Google Play 发布
 

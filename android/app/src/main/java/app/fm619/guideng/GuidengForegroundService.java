@@ -17,6 +17,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -55,6 +56,7 @@ public class GuidengForegroundService extends Service {
     private static final long LOCATION_INTERVAL_MS = 60_000L;
     private static final float LOCATION_DISTANCE_METERS = 15f;
     private static final long WATCHDOG_INTERVAL_MS = 120_000L;
+    private static final long MAX_UPLOAD_BACKOFF_MS = 15 * 60_000L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
@@ -63,6 +65,10 @@ public class GuidengForegroundService extends Service {
     private Session session;
     private boolean requestingUpdates;
     private volatile long lastUploadedAt;
+    private volatile long lastQueuedLocationAt;
+    private volatile long nextUploadAllowedAt;
+    private volatile int consecutiveUploadFailures;
+    private volatile boolean uploadInFlight;
 
     private final Runnable watchdog = new Runnable() {
         @Override
@@ -194,16 +200,39 @@ public class GuidengForegroundService extends Service {
 
     private void uploadLocation(Location location) {
         Session activeSession = session;
-        if (activeSession == null || location == null || location.getTime() <= lastUploadedAt) {
+        long now = SystemClock.elapsedRealtime();
+        if (activeSession == null
+            || location == null
+            || uploadInFlight
+            || now < nextUploadAllowedAt
+            || location.getTime() <= lastQueuedLocationAt) {
             return;
         }
 
         long capturedAt = location.getTime();
+        uploadInFlight = true;
+        lastQueuedLocationAt = capturedAt;
+        nextUploadAllowedAt = now + LOCATION_INTERVAL_MS;
         networkExecutor.execute(() -> {
             try {
                 postJson(activeSession, "/api/devices/" + activeSession.deviceId + "/location", locationJson(location));
                 lastUploadedAt = Math.max(lastUploadedAt, capturedAt);
+                consecutiveUploadFailures = 0;
             } catch (IOException | JSONException ignored) {
+                consecutiveUploadFailures = Math.min(consecutiveUploadFailures + 1, 8);
+                // Permit the watchdog to retry the same last-known location
+                // after the backoff window. Successful captures remain deduped.
+                lastQueuedLocationAt = lastUploadedAt;
+                long backoff = Math.min(
+                    LOCATION_INTERVAL_MS * (1L << (consecutiveUploadFailures - 1)),
+                    MAX_UPLOAD_BACKOFF_MS
+                );
+                nextUploadAllowedAt = Math.max(
+                    nextUploadAllowedAt,
+                    SystemClock.elapsedRealtime() + backoff
+                );
+            } finally {
+                uploadInFlight = false;
             }
         });
     }
@@ -318,6 +347,10 @@ public class GuidengForegroundService extends Service {
     private void clearSession() {
         session = null;
         lastUploadedAt = 0L;
+        lastQueuedLocationAt = 0L;
+        nextUploadAllowedAt = 0L;
+        consecutiveUploadFailures = 0;
+        uploadInFlight = false;
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().clear().apply();
     }
 

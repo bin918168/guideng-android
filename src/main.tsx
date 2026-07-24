@@ -187,8 +187,11 @@ function App() {
     if (!session) return;
     let watchId: number | null = null;
     let cancelled = false;
+    const nativeLocationSharing = Boolean(window.GuidengNative?.configureLocationSharing);
 
-    if ('geolocation' in navigator) {
+    // Android reports locations through GuidengForegroundService. Starting a
+    // second WebView watcher here would duplicate uploads while the app is open.
+    if (!nativeLocationSharing && 'geolocation' in navigator) {
       setStatus('locating');
       getCurrentLocation()
         .then(async (position) => {
@@ -213,7 +216,7 @@ function App() {
         },
         { enableHighAccuracy: true, maximumAge: 30_000, timeout: 60_000 },
       );
-    } else {
+    } else if (!nativeLocationSharing) {
       setError('Geolocation is not available in this browser.');
     }
 
@@ -229,7 +232,6 @@ function App() {
     setStatus('sharing');
     try {
       await sendLocation(activeSession, position);
-      await refreshDevices(activeSession);
       setError('');
     } catch (err) {
       showError(err);
